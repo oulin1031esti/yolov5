@@ -85,4 +85,4 @@ __pycache__/
 *.png
 core.*
 .vscode
-rat_dataset
+runs/

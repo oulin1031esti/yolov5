@@ -35,18 +35,18 @@ logger = logging.getLogger(__name__)
 def train(hyp, opt, device, tb_writer=None):
     logger.info(f'Hyperparameters {hyp}')
     log_dir = Path(tb_writer.log_dir) if tb_writer else Path(opt.logdir) / 'evolve'  # logging directory
-    wdir = log_dir / 'weights'  # weights directory
+    wdir = log_dir / 'models'/'final'  # weights directory
     os.makedirs(wdir, exist_ok=True)
     last = wdir / 'last.pt'
     best = wdir / 'best.pt'
-    results_file = str(log_dir / 'results.txt')
+    results_file = str(log_dir / 'log'/'results.txt')
     epochs, batch_size, total_batch_size, weights, rank = \
         opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.global_rank
 
     # Save run settings
-    with open(log_dir / 'hyp.yaml', 'w') as f:
+    with open(log_dir / 'log'/'hyp.yaml', 'w') as f:
         yaml.dump(hyp, f, sort_keys=False)
-    with open(log_dir / 'opt.yaml', 'w') as f:
+    with open(log_dir / 'log'/'opt.yaml', 'w') as f:
         yaml.dump(vars(opt), f, sort_keys=False)
 
     # Configure
@@ -57,7 +57,7 @@ def train(hyp, opt, device, tb_writer=None):
     with torch_distributed_zero_first(rank):
         check_dataset(data_dict)  # check
     train_path = data_dict['train']
-    test_path = data_dict['val']
+    # test_path = data_dict['val']
     nc, names = (1, ['item']) if opt.single_cls else (int(data_dict['nc']), data_dict['names'])  # number classes, names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
 
@@ -169,11 +169,11 @@ def train(hyp, opt, device, tb_writer=None):
     assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
 
     # Testloader
-    if rank in [-1, 0]:
-        ema.updates = start_epoch * nb // accumulate  # set EMA updates
-        testloader = create_dataloader(test_path, imgsz_test, total_batch_size, gs, opt,
-                                       hyp=hyp, augment=False, cache=opt.cache_images, rect=True, rank=-1,
-                                       world_size=opt.world_size, workers=opt.workers)[0]  # only runs on process 0
+    # if rank in [-1, 0]:
+    #     ema.updates = start_epoch * nb // accumulate  # set EMA updates
+    #     testloader = create_dataloader(test_path, imgsz_test, total_batch_size, gs, opt,
+    #                                    hyp=hyp, augment=False, cache=opt.cache_images, rect=True, rank=-1,
+    #                                    world_size=opt.world_size, workers=opt.workers)[0]  # only runs on process 0
 
     # Model parameters
     hyp['cls'] *= nc / 80.  # scale coco-tuned hyp['cls'] to current dataset
@@ -189,7 +189,7 @@ def train(hyp, opt, device, tb_writer=None):
         c = torch.tensor(labels[:, 0])  # classes
         # cf = torch.bincount(c.long(), minlength=nc) + 1.
         # model._initialize_biases(cf.to(device))
-        plot_labels(labels, save_dir=log_dir)
+        plot_labels(labels, save_dir='/project/train/log')
         if tb_writer:
             # tb_writer.add_hparams(hyp, {})  # causes duplicate https://github.com/ultralytics/yolov5/pull/384
             tb_writer.add_histogram('classes', c, 0)
@@ -299,7 +299,7 @@ def train(hyp, opt, device, tb_writer=None):
 
                 # Plot
                 if ni < 3:
-                    f = str(log_dir / ('train_batch%g.jpg' % ni))  # filename
+                    f = str(log_dir / 'log' / ('train_batch%g.jpg' % ni))  # filename
                     result = plot_images(images=imgs, targets=targets, paths=paths, fname=f)
                     if tb_writer and result is not None:
                         tb_writer.add_image(f, result, dataformats='HWC', global_step=epoch)
@@ -317,18 +317,18 @@ def train(hyp, opt, device, tb_writer=None):
             if ema:
                 ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'gr', 'names', 'stride'])
             final_epoch = epoch + 1 == epochs
-            if not opt.notest or final_epoch:  # Calculate mAP
-                results, maps, times = test.test(opt.data,
-                                                 batch_size=total_batch_size,
-                                                 imgsz=imgsz_test,
-                                                 model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,
-                                                 single_cls=opt.single_cls,
-                                                 dataloader=testloader,
-                                                 save_dir=log_dir)
+            # if not opt.notest or final_epoch:  # Calculate mAP
+            #     results, maps, times = test.test(opt.data,
+            #                                      batch_size=total_batch_size,
+            #                                      imgsz=imgsz_test,
+            #                                      model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,
+            #                                      single_cls=opt.single_cls,
+            #                                      dataloader=testloader,
+            #                                      save_dir=log_dir)
 
             # Write
-            with open(results_file, 'a') as f:
-                f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
+            # with open(results_file, 'a') as f:
+                # f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
             if len(opt.name) and opt.bucket:
                 os.system('gsutil cp %s gs://%s/results/results%s.txt' % (results_file, opt.bucket, opt.name))
 
@@ -349,12 +349,12 @@ def train(hyp, opt, device, tb_writer=None):
             # Save model
             save = (not opt.nosave) or (final_epoch and not opt.evolve)
             if save:
-                with open(results_file, 'r') as f:  # create checkpoint
-                    ckpt = {'epoch': epoch,
-                            'best_fitness': best_fitness,
-                            'training_results': f.read(),
-                            'model': ema.ema.module if hasattr(ema, 'module') else ema.ema,
-                            'optimizer': None if final_epoch else optimizer.state_dict()}
+                # with open(results_file, 'r') as f:  # create checkpoint
+                ckpt = {'epoch': epoch,
+                        'best_fitness': best_fitness,
+                        # 'training_results': f.read(),
+                        'model': ema.ema.module if hasattr(ema, 'module') else ema.ema,
+                        'optimizer': None if final_epoch else optimizer.state_dict()}
 
                 # Save last, best and delete
                 torch.save(ckpt, last)
@@ -408,7 +408,7 @@ if __name__ == '__main__':
     parser.add_argument('--adam', action='store_true', help='use torch.optim.Adam() optimizer')
     parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
-    parser.add_argument('--logdir', type=str, default='runs/', help='logging directory')
+    parser.add_argument('--logdir', type=str, default='/project/train', help='logging directory')
     parser.add_argument('--workers', type=int, default=8, help='maximum number of dataloader workers')
     opt = parser.parse_args()
 
@@ -435,7 +435,8 @@ if __name__ == '__main__':
         opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
         assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
         opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
-        log_dir = increment_dir(Path(opt.logdir) / 'exp', opt.name)  # runs/exp1
+        # log_dir = increment_dir(Path(opt.logdir) / 'exp', opt.name)  # runs/exp1
+        log_dir = opt.logdir
 
     device = select_device(opt.device, batch_size=opt.batch_size)
 

@@ -9,13 +9,13 @@ if __name__=="__main__":
     os.chdir(path)
     names = glob.glob('*.jpg')
     if os.path.exists('/project/train/src_repo/yolov5/rat_dataset/images/'):
-        os.system('rm -r /project/train/src_repo/yolov5/rat_dataset/images/')
-        os.system('rm -r /project/train/src_repo/yolov5/rat_dataset/labels/')
+        os.system('rm -r /project/train/src_repo/yolov5/rat_dataset/images/*')
+        os.system('rm -r /project/train/src_repo/yolov5/rat_dataset/labels/*')
     else:
-        os.system('mkdir /project/train/src_repo/yolov5/rat_dataset/images/')
-        os.system('mkdir /project/train/src_repo/yolov5/rat_dataset/labels/')
+        os.system('mkdir -p /project/train/src_repo/yolov5/rat_dataset/images/')
+        os.system('mkdir -p /project/train/src_repo/yolov5/rat_dataset/labels/')
 
-    os.system("mv /home/data/18/ /project/train/src_repo/yolov5/rat_dataset/images/")
+    os.system("cp /home/data/18/*.jpg /project/train/src_repo/yolov5/rat_dataset/images/")
     names = [os.path.splitext(name)[0] for name in names]
     for name in names:
         xml_path = os.path.join(path, '{}.xml'.format(name))

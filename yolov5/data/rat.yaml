@@ -1,0 +1,7 @@
+train: ../rat_dataset/images/ #img dir 
+
+# number of classes
+nc: 1
+
+# class names
+names: ["rat"]

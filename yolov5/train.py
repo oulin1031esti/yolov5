@@ -57,7 +57,7 @@ def train(hyp, opt, device, tb_writer=None):
     with torch_distributed_zero_first(rank):
         check_dataset(data_dict)  # check
     train_path = data_dict['train']
-    # test_path = data_dict['val']
+    test_path = data_dict['val']
     nc, names = (1, ['item']) if opt.single_cls else (int(data_dict['nc']), data_dict['names'])  # number classes, names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
 
@@ -169,11 +169,11 @@ def train(hyp, opt, device, tb_writer=None):
     assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
 
     # Testloader
-    # if rank in [-1, 0]:
-    #     ema.updates = start_epoch * nb // accumulate  # set EMA updates
-    #     testloader = create_dataloader(test_path, imgsz_test, total_batch_size, gs, opt,
-    #                                    hyp=hyp, augment=False, cache=opt.cache_images, rect=True, rank=-1,
-    #                                    world_size=opt.world_size, workers=opt.workers)[0]  # only runs on process 0
+    if rank in [-1, 0]:
+        ema.updates = start_epoch * nb // accumulate  # set EMA updates
+        testloader = create_dataloader(test_path, imgsz_test, total_batch_size, gs, opt,
+                                       hyp=hyp, augment=False, cache=opt.cache_images, rect=True, rank=-1,
+                                       world_size=opt.world_size, workers=opt.workers)[0]  # only runs on process 0
 
     # Model parameters
     hyp['cls'] *= nc / 80.  # scale coco-tuned hyp['cls'] to current dataset
@@ -317,18 +317,18 @@ def train(hyp, opt, device, tb_writer=None):
             if ema:
                 ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'gr', 'names', 'stride'])
             final_epoch = epoch + 1 == epochs
-            # if not opt.notest or final_epoch:  # Calculate mAP
-            #     results, maps, times = test.test(opt.data,
-            #                                      batch_size=total_batch_size,
-            #                                      imgsz=imgsz_test,
-            #                                      model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,
-            #                                      single_cls=opt.single_cls,
-            #                                      dataloader=testloader,
-            #                                      save_dir=log_dir)
+            if not opt.notest or final_epoch:  # Calculate mAP
+                results, maps, times = test.test(opt.data,
+                                                 batch_size=total_batch_size,
+                                                 imgsz=imgsz_test,
+                                                 model=ema.ema.module if hasattr(ema.ema, 'module') else ema.ema,
+                                                 single_cls=opt.single_cls,
+                                                 dataloader=testloader,
+                                                 save_dir=log_dir)
 
             # Write
-            # with open(results_file, 'a') as f:
-                # f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
+            with open(results_file, 'a') as f:
+                f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP, F1, test_losses=(GIoU, obj, cls)
             if len(opt.name) and opt.bucket:
                 os.system('gsutil cp %s gs://%s/results/results%s.txt' % (results_file, opt.bucket, opt.name))
 
@@ -349,12 +349,12 @@ def train(hyp, opt, device, tb_writer=None):
             # Save model
             save = (not opt.nosave) or (final_epoch and not opt.evolve)
             if save:
-                # with open(results_file, 'r') as f:  # create checkpoint
-                ckpt = {'epoch': epoch,
-                        'best_fitness': best_fitness,
-                        # 'training_results': f.read(),
-                        'model': ema.ema.module if hasattr(ema, 'module') else ema.ema,
-                        'optimizer': None if final_epoch else optimizer.state_dict()}
+                with open(results_file, 'r') as f:  # create checkpoint
+                    ckpt = {'epoch': epoch,
+                            'best_fitness': best_fitness,
+                            'training_results': f.read(),
+                            'model': ema.ema.module if hasattr(ema, 'module') else ema.ema,
+                            'optimizer': None if final_epoch else optimizer.state_dict()}
 
                 # Save last, best and delete
                 torch.save(ckpt, last)
